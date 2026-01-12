@@ -8,20 +8,18 @@ from pathlib import Path
 from src.data_loader import load_flickr_data, get_data_info, print_data_info
 from src.data_cleaning import clean_data
 from src.visualization import create_map
-from src.clustering import run_dbscan, analyze_clusters, print_results
+from src.clustering import compare_algorithms, print_results
 
 DATA_PATH = Path("data/flickr_data2.csv")
 OUTPUT_DIR = Path("outputs")
-DBSCAN_EPS = 0.003
-DBSCAN_MIN_SAMPLES = 10
 
 
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
     print("LYON GEO-LOCATED DATA MINING")
-    print("=" * 60)
+    print("=" * 70)
     
     # 1. Load
     print("\n[1/4] Loading data...")
@@ -33,32 +31,37 @@ def main():
     print("\n[2/4] Cleaning data...")
     df_clean, report = clean_data(df_raw, verbose=True)
     report.print_report()
-    
     df_clean.to_csv(OUTPUT_DIR / "flickr_cleaned.csv", index=False)
     
-    # 3. Cluster
-    print("\n[3/4] Running DBSCAN clustering...")
-    print(f"  Parameters: eps={DBSCAN_EPS}, min_samples={DBSCAN_MIN_SAMPLES}")
-    labels = run_dbscan(df_clean, eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES)
-    analysis = analyze_clusters(df_clean, labels)
-    print_results(analysis)
+    # 3. Cluster - Run both algorithms
+    print("\n[3/4] Clustering...")
+    results = compare_algorithms(df_clean)
     
-    # 4. Visualize
-    print("\n[4/4] Creating map with clusters...")
-    create_map(df_clean, labels=labels, output_path=str(OUTPUT_DIR / "lyon_map.html"))
+    print_results(results['dbscan']['analysis'], "DBSCAN")
+    print_results(results['hdbscan']['analysis'], "HDBSCAN")
+    
+    # 4. Visualize with both algorithms
+    print("\n[4/4] Creating interactive map...")
+    create_map(
+        df_clean, 
+        labels_dbscan=results['dbscan']['labels'],
+        labels_hdbscan=results['hdbscan']['labels'],
+        output_path=str(OUTPUT_DIR / "lyon_map.html")
+    )
     
     # Summary
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
     print("DONE")
-    print("=" * 60)
+    print("=" * 70)
     print(f"  Raw data:     {len(df_raw):,} rows")
     print(f"  Clean data:   {len(df_clean):,} rows")
-    print(f"  Clusters:     {analysis['n_clusters']}")
-    print(f"  Noise:        {analysis['noise_pct']:.1f}%")
+    print(f"\n  DBSCAN:   {results['dbscan']['analysis']['n_clusters']} clusters")
+    print(f"  HDBSCAN:  {results['hdbscan']['analysis']['n_clusters']} clusters")
     print(f"\nOutputs:")
     print(f"  - {OUTPUT_DIR / 'flickr_cleaned.csv'}")
     print(f"  - {OUTPUT_DIR / 'lyon_map.html'}")
-    print("=" * 60)
+    print("\n  💡 Use the DBSCAN/HDBSCAN buttons on the map to switch algorithms!")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
