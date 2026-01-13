@@ -1,8 +1,3 @@
-"""
-Data Cleaning Module
-Filter, deduplicate, and clean the Flickr geo-located data.
-"""
-
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -39,20 +34,11 @@ VALIDATION_RULES = {
 }
 
 REQUIRED_COLUMNS = [
-    'id',
-    'user', 
-    'lat',
-    'long',
-    'date_taken_minute',
-    'date_taken_hour',
-    'date_taken_day',
-    'date_taken_month',
-    'date_taken_year',
-    'date_upload_minute',
-    'date_upload_hour',
-    'date_upload_day',
-    'date_upload_month',
-    'date_upload_year',
+    'id', 'user', 'lat', 'long',
+    'date_taken_minute', 'date_taken_hour', 'date_taken_day',
+    'date_taken_month', 'date_taken_year',
+    'date_upload_minute', 'date_upload_hour', 'date_upload_day',
+    'date_upload_month', 'date_upload_year',
 ]
 
 
@@ -320,7 +306,6 @@ def clean_data(df: pd.DataFrame, verbose: bool = True) -> Tuple[pd.DataFrame, Cl
     
     if verbose:
         print("Starting data cleaning pipeline...")
-        print("  (Optimized order: duplicates first for better performance)")
     
     if verbose:
         print("  [1/7] Removing duplicate photo IDs...")

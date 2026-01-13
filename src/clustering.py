@@ -1,7 +1,3 @@
-"""
-DBSCAN Clustering for Geo-located Data
-"""
-
 import pandas as pd
 import numpy as np
 from sklearn.cluster import DBSCAN
@@ -9,22 +5,13 @@ from collections import Counter
 
 
 def run_dbscan(df: pd.DataFrame, eps: float = 0.003, min_samples: int = 100) -> np.ndarray:
-    """
-    Run DBSCAN on coordinates.
-    
-    eps: ~0.001 degrees ≈ 100m at Lyon's latitude
-    """
     coords = df[['lat', 'long']].values
-    
     dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean', n_jobs=-1)
     labels = dbscan.fit_predict(coords)
-    
     return labels
 
 
 def analyze_clusters(df: pd.DataFrame, labels: np.ndarray) -> dict:
-    """Get basic cluster statistics."""
-    
     n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
     n_noise = (labels == -1).sum()
     n_clustered = (labels >= 0).sum()
@@ -57,7 +44,6 @@ def analyze_clusters(df: pd.DataFrame, labels: np.ndarray) -> dict:
 
 
 def get_top_tags(df: pd.DataFrame, n: int = 5) -> list:
-    """Get top n tags from a dataframe."""
     all_tags = []
     for tags_str in df['tags'].dropna():
         if tags_str:
@@ -68,7 +54,6 @@ def get_top_tags(df: pd.DataFrame, n: int = 5) -> list:
 
 
 def print_results(analysis: dict) -> None:
-    """Print clustering results."""
     print("\n" + "=" * 60)
     print("DBSCAN CLUSTERING RESULTS")
     print("=" * 60)

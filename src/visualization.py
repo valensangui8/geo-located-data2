@@ -1,7 +1,3 @@
-"""
-Interactive Map Visualization for Flickr Lyon Data with Clustering
-"""
-
 import pandas as pd
 import numpy as np
 import folium
@@ -20,8 +16,6 @@ CLUSTER_COLORS = [
 
 
 def create_map(df: pd.DataFrame, labels: np.ndarray = None, output_path: str = None) -> folium.Map:
-    """Create interactive map with cluster visualization."""
-    
     m = folium.Map(location=LYON_CENTER, zoom_start=13, tiles='cartodbpositron')
     
     if labels is not None:
@@ -38,15 +32,12 @@ def create_map(df: pd.DataFrame, labels: np.ndarray = None, output_path: str = N
 
 
 def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarray) -> None:
-    """Add interactive clusters - click center to see photos."""
-    
     df_work = df.copy()
     df_work['cluster'] = labels
     
     unique_clusters = sorted([c for c in set(labels) if c >= 0], 
                             key=lambda x: (labels == x).sum(), reverse=True)
     
-    # Prepare cluster data for JavaScript
     clusters_data = {}
     
     for idx, cluster_id in enumerate(unique_clusters[:20]):
@@ -54,7 +45,6 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
         cluster_df = df_work[mask]
         color = CLUSTER_COLORS[idx % len(CLUSTER_COLORS)]
         
-        # Sample if too large
         if len(cluster_df) > 300:
             sample_df = cluster_df.sample(n=300, random_state=42)
         else:
@@ -78,7 +68,6 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
             'color': color
         }
     
-    # Add cluster centers as clickable markers
     for idx, cluster_id in enumerate(unique_clusters[:20]):
         mask = labels == cluster_id
         cluster_df = df[mask]
@@ -94,7 +83,6 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
         
         radius = min(25, max(12, size / 400))
         
-        # Create marker with click event
         marker = folium.CircleMarker(
             location=[center_lat, center_long],
             radius=radius,
@@ -105,7 +93,6 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
             weight=3
         )
         
-        # Add popup with info
         popup_html = f"""
         <div style="font-family: Arial, sans-serif; width: 220px;">
             <h4 style="margin: 0 0 10px 0; color: {color};">Cluster {cluster_id}</h4>
@@ -123,14 +110,12 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
         marker.add_child(folium.Popup(popup_html, max_width=250))
         marker.add_to(m)
     
-    # Add JavaScript for interactivity
     js_code = f"""
     <script>
     var clustersData = {json.dumps(clusters_data)};
     var currentMarkers = [];
     var map = null;
     
-    // Wait for map to be ready
     document.addEventListener('DOMContentLoaded', function() {{
         setTimeout(function() {{
             var maps = document.querySelectorAll('.folium-map');
@@ -141,7 +126,6 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
     }});
     
     function showCluster(clusterId) {{
-        // Clear previous markers
         currentMarkers.forEach(function(m) {{
             if (map) map.removeLayer(m);
         }});
@@ -149,15 +133,12 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
         
         var data = clustersData[clusterId];
         if (!data || !map) {{
-            // Fallback: try to find map
             map = Object.values(window).find(v => v && v._container && v._container.classList && v._container.classList.contains('folium-map'));
             if (!map) return;
         }}
         
-        // Zoom to cluster
         map.setView(data.center, 16);
         
-        // Add photo markers
         data.photos.forEach(function(photo) {{
             var popupContent = '<div style="font-family: Arial; width: 240px;">' +
                 '<p><b>📷 ID:</b> ' + photo.id + '</p>' +
@@ -217,8 +198,6 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
 
 
 def _add_simple_markers(m: folium.Map, df: pd.DataFrame) -> None:
-    """Add simple marker cluster without clustering labels."""
-    
     sample = df.sample(n=min(5000, len(df)), random_state=42)
     marker_cluster = MarkerCluster(name='Photos')
     
@@ -243,7 +222,6 @@ def _add_simple_markers(m: folium.Map, df: pd.DataFrame) -> None:
 
 
 def _get_top_tags(df: pd.DataFrame, n: int = 5) -> list:
-    """Get top n tags from dataframe."""
     all_tags = []
     for tags_str in df['tags'].dropna():
         if tags_str:
