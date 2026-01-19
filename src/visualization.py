@@ -14,6 +14,15 @@ CLUSTER_COLORS = [
     '#e78ac3', '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3', '#1b9e77'
 ]
 
+COLOR_SCHEMES = {
+    'DBSCAN': CLUSTER_COLORS,
+    'K-Means': ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
+                '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#aec7e8', '#ffbb78'],
+    'HDBSCAN': ['#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22',
+                '#17becf', '#ff9896', '#c5b0d5', '#c49c94', '#f7b6d2', '#c7c7c7']
+}
+
+
 
 def create_map(df: pd.DataFrame, labels: np.ndarray = None, output_path: str = None) -> folium.Map:
     m = folium.Map(location=LYON_CENTER, zoom_start=13, tiles='cartodbpositron')
@@ -230,6 +239,99 @@ def _get_top_tags(df: pd.DataFrame, n: int = 5) -> list:
     return Counter(all_tags).most_common(n)
 
 
+def create_comparison_map(df: pd.DataFrame, all_labels: dict,
+                         tfidf_results: dict = None, tf_results: dict = None,
+                         rules_results: dict = None,
+                         output_path: str = None) -> folium.Map:
+    m = folium.Map(location=LYON_CENTER, zoom_start=13, tiles='cartodbpositron')
+    
+    for algo_name, labels in all_labels.items():
+        feature_group = folium.FeatureGroup(name=algo_name, show=(algo_name=='DBSCAN'))
+        _add_algorithm_layer(feature_group, df, labels, algo_name,
+                             tfidf_results, tf_results, rules_results)
+        feature_group.add_to(m)
+    
+    folium.LayerControl(position='topright', collapsed=False).add_to(m)
+    
+    if output_path:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        m.save(output_path)
+        print(f"Comparison map saved to: {output_path}")
+    
+    return m
+
+
+def _add_algorithm_layer(feature_group, df: pd.DataFrame, labels: np.ndarray,
+                        algo_name: str, tfidf_results: dict = None,
+                        tf_results: dict = None, rules_results: dict = None):
+    colors = COLOR_SCHEMES.get(algo_name, CLUSTER_COLORS)
+    
+    unique_clusters = sorted([c for c in set(labels) if c >= 0], 
+                            key=lambda x: (labels == x).sum(), reverse=True)
+    
+    for idx, cluster_id in enumerate(unique_clusters[:20]):
+        mask = labels == cluster_id
+        cluster_df = df[mask]
+        
+        center_lat = cluster_df['lat'].mean()
+        center_long = cluster_df['long'].mean()
+        size = len(cluster_df)
+        users = cluster_df['user'].nunique()
+        color = colors[idx % len(colors)]
+        
+        top_tags = _get_top_tags(cluster_df, 5)
+        tags_html = "<br>".join([f"• {t[0]} ({t[1]})" for t in top_tags[:3]]) if top_tags else "N/A"
+        
+        tfidf_html = ""
+        if tfidf_results and algo_name in tfidf_results:
+            tfidf_words = tfidf_results[algo_name].get(cluster_id, [])
+            if tfidf_words:
+                tfidf_html = "<br><b>🔍 TF-IDF words:</b><br>"
+                tfidf_html += "<br>".join([f"• {w[0]} ({w[1]:.2f})" for w in tfidf_words[:3]])
+
+        tf_html = ""
+        if tf_results and algo_name in tf_results:
+            tf_words = tf_results[algo_name].get(cluster_id, [])
+            if tf_words:
+                tf_html = "<br><b>📌 Top words (TF):</b><br>"
+                tf_html += "<br>".join([f"• {w[0]} ({w[1]:.2f})" for w in tf_words[:3]])
+
+        rules_html = ""
+        if rules_results and algo_name in rules_results:
+            rules = rules_results[algo_name].get(cluster_id, [])
+            if rules:
+                rules_html = "<br><b>🔗 Association rules:</b><br>"
+                rules_html += "<br>".join([f"• {r}" for r in rules[:3]])
+        
+        radius = min(20, max(8, size / 500))
+        
+        marker = folium.CircleMarker(
+            location=[center_lat, center_long],
+            radius=radius,
+            color=color,
+            fill=True,
+            fillColor=color,
+            fillOpacity=0.6,
+            weight=2
+        )
+        
+        popup_html = f"""
+        <div style="font-family: Arial, sans-serif; width: 220px;">
+            <h4 style="margin: 0 0 10px 0; color: {color};">{algo_name} - Cluster {cluster_id}</h4>
+            <p style="margin: 5px 0;"><b>📷 Photos:</b> {size:,}</p>
+            <p style="margin: 5px 0;"><b>👥 Users:</b> {users}</p>
+            <p style="margin: 5px 0;"><b>🏷️ Top tags:</b></p>
+            <p style="margin: 0 0 10px 10px; font-size: 12px;">{tags_html}</p>
+            {tfidf_html}
+            {tf_html}
+            {rules_html}
+        </div>
+        """
+        
+        marker.add_child(folium.Popup(popup_html, max_width=250))
+        marker.add_to(feature_group)
+
+
 if __name__ == "__main__":
     from data_loader import load_flickr_data
     from data_cleaning import clean_data
@@ -240,7 +342,7 @@ if __name__ == "__main__":
     df_clean, _ = clean_data(df, verbose=False)
     
     print("Running clustering...")
-    labels = run_dbscan(df_clean)
+    labels, _ = run_dbscan(df_clean)
     
     print(f"Creating map with {len(df_clean):,} points...")
     create_map(df_clean, labels=labels, output_path="outputs/lyon_map.html")

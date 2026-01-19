@@ -1,0 +1,15 @@
+{
+  "dbscan": {
+    "eps_radians": 5.894449401370248e-05,
+    "eps_meters": 375.53537136129853,
+    "min_samples": 20
+  },
+  "kmeans": {
+    "n_clusters": 6
+  },
+  "hdbscan": {
+    "min_cluster_size": 30,
+    "min_samples": 10
+  },
+  "best_algorithm": "HDBSCAN"
+}
