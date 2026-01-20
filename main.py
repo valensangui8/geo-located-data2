@@ -11,19 +11,16 @@ from src.data_loader import load_flickr_data, get_data_info, print_data_info
 from src.data_cleaning import clean_data
 from src.visualization import create_map
 from src.clustering import (
-    run_dbscan, run_kmeans, run_hierarchical,
-    analyze_clusters, print_results,
-    compare_algorithms, print_comparison
+    run_hdbscan, analyze_clusters, print_results
 )
 
 DATA_PATH = Path("data/flickr_data2.csv")
 OUTPUT_DIR = Path("outputs")
 
-# Parámetros por defecto (se optimizan automáticamente)
-DBSCAN_EPS = 0.003
-DBSCAN_MIN_SAMPLES = 50
-KMEANS_CLUSTERS = 20
-HIERARCHICAL_CLUSTERS = 20
+# Parámetros HDBSCAN para detectar zonas turísticas
+# HDBSCAN ajusta automáticamente la densidad según la zona
+HDBSCAN_MIN_CLUSTER_SIZE = 50   # Mínimo 50 fotos para ser un punto de interés
+HDBSCAN_MIN_SAMPLES = 10        # Puntos mínimos para ser "core point"
 
 
 def main():
@@ -37,7 +34,7 @@ def main():
     # =========================================================================
     # PASO 1: Cargar datos
     # =========================================================================
-    print("\n[1/5] 📂 Cargando datos...")
+    print("\n[1/4] 📂 Cargando datos...")
     df_raw = load_flickr_data(DATA_PATH)
     info = get_data_info(df_raw)
     print_data_info(info)
@@ -45,7 +42,7 @@ def main():
     # =========================================================================
     # PASO 2: Limpieza de datos
     # =========================================================================
-    print("\n[2/5] 🧹 Limpiando datos...")
+    print("\n[2/4] 🧹 Limpiando datos...")
     df_clean, report = clean_data(df_raw, verbose=True)
     report.print_report()
     
@@ -53,50 +50,26 @@ def main():
     print(f"  ✓ Datos limpios guardados en: {OUTPUT_DIR / 'flickr_cleaned.csv'}")
     
     # =========================================================================
-    # PASO 3: Comparación de algoritmos de clustering
+    # PASO 3: HDBSCAN - Clustering de densidad variable
     # =========================================================================
-    print("\n[3/5] 🔬 Comparando algoritmos de clustering...")
-    print("      (DBSCAN vs K-Means vs Hierarchical)")
+    print("\n[3/4] 🔬 Ejecutando HDBSCAN...")
+    print(f"      min_cluster_size = {HDBSCAN_MIN_CLUSTER_SIZE}")
+    print(f"      min_samples = {HDBSCAN_MIN_SAMPLES}")
+    print("      (HDBSCAN ajusta automáticamente la densidad)")
     
-    # Ejecutar comparación con optimización
-    results = compare_algorithms(df_clean, optimize=True, verbose=True)
-    print_comparison(results)
+    labels = run_hdbscan(df_clean, 
+                         min_cluster_size=HDBSCAN_MIN_CLUSTER_SIZE, 
+                         min_samples=HDBSCAN_MIN_SAMPLES)
+    analysis = analyze_clusters(df_clean, labels, "HDBSCAN")
     
-    # =========================================================================
-    # PASO 4: Seleccionar mejor algoritmo y crear mapa
-    # =========================================================================
-    print("\n[4/5] 🏆 Seleccionando mejor algoritmo...")
-    
-    # Elegir el algoritmo con mejor silhouette (excluyendo DBSCAN si tiene mucho ruido)
-    best_algo = None
-    best_score = -1
-    
-    for name, data in results.items():
-        sil = data.get('metrics', {}).get('silhouette', -1)
-        # Penalizar si hay mucho ruido
-        if data['noise_pct'] > 50:
-            sil *= 0.5
-        if sil > best_score:
-            best_score = sil
-            best_algo = name
-    
-    print(f"  ✓ Algoritmo seleccionado: {results[best_algo]['algorithm']}")
-    print(f"    Silhouette score: {best_score:.4f}")
-    print(f"    Clusters: {results[best_algo]['n_clusters']}")
-    
-    best_labels = results[best_algo]['labels']
-    best_analysis = results[best_algo]
+    # Mostrar resultados
+    print_results(analysis)
     
     # =========================================================================
-    # PASO 5: Crear visualización
+    # PASO 4: Crear visualización
     # =========================================================================
-    print("\n[5/5] 🗺️  Creando mapa interactivo...")
-    create_map(df_clean, labels=best_labels, output_path=str(OUTPUT_DIR / "lyon_map.html"))
-    
-    # También crear mapas para cada algoritmo
-    for name, data in results.items():
-        output_file = OUTPUT_DIR / f"lyon_map_{name}.html"
-        create_map(df_clean, labels=data['labels'], output_path=str(output_file))
+    print("\n[4/4] 🗺️  Creando mapa interactivo...")
+    create_map(df_clean, labels=labels, output_path=str(OUTPUT_DIR / "lyon_map.html"))
     
     # =========================================================================
     # RESUMEN FINAL
@@ -108,20 +81,21 @@ def main():
     print(f"  📊 Datos limpios:     {len(df_clean):,} filas")
     print(f"  📊 Reducción:         {100*(1-len(df_clean)/len(df_raw)):.1f}%")
     print()
-    print(f"  🏆 Mejor algoritmo:   {results[best_algo]['algorithm']}")
-    print(f"  📍 Clusters:          {best_analysis['n_clusters']}")
-    print(f"  🔇 Ruido:             {best_analysis['noise_pct']:.1f}%")
+    print(f"  🔵 HDBSCAN (min_cluster_size={HDBSCAN_MIN_CLUSTER_SIZE}, min_samples={HDBSCAN_MIN_SAMPLES}):")
+    print(f"     📍 Clusters: {analysis['n_clusters']}")
+    print(f"     🔇 Ruido: {analysis['n_noise']:,} puntos ({analysis['noise_pct']:.1f}%)")
+    if analysis.get('metrics'):
+        print(f"     📈 Silhouette: {analysis['metrics'].get('silhouette', 'N/A'):.4f}")
+        print(f"     📈 Calinski-Harabasz: {analysis['metrics'].get('calinski_harabasz', 'N/A'):.1f}")
+        print(f"     📈 Davies-Bouldin: {analysis['metrics'].get('davies_bouldin', 'N/A'):.4f}")
     print()
     print(f"  📁 Archivos generados:")
     print(f"     - {OUTPUT_DIR / 'flickr_cleaned.csv'}")
-    print(f"     - {OUTPUT_DIR / 'lyon_map.html'} (mejor algoritmo)")
-    print(f"     - {OUTPUT_DIR / 'lyon_map_dbscan.html'}")
-    print(f"     - {OUTPUT_DIR / 'lyon_map_kmeans.html'}")
-    print(f"     - {OUTPUT_DIR / 'lyon_map_hierarchical.html'}")
+    print(f"     - {OUTPUT_DIR / 'lyon_map.html'}")
     print("=" * 70)
     
-    return results, df_clean
+    return analysis, labels, df_clean
 
 
 if __name__ == "__main__":
-    results, df = main()
+    analysis, labels, df = main()

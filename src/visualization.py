@@ -9,9 +9,9 @@ import json
 LYON_CENTER = (45.7640, 4.8357)
 
 CLUSTER_COLORS = [
-    '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33',
-    '#a65628', '#f781bf', '#999999', '#66c2a5', '#fc8d62', '#8da0cb',
-    '#e78ac3', '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3', '#1b9e77'
+    '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', "#000000",
+    '#a65628', '#f781bf', '#999999', '#66c2a5', "#909090", '#8da0cb',
+    '#e78ac3', '#a6d854', "#312e24", "#a1865d", '#b3b3b3', '#1b9e77'
 ]
 
 
@@ -32,26 +32,79 @@ def create_map(df: pd.DataFrame, labels: np.ndarray = None, output_path: str = N
 
 
 def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarray) -> None:
+    # --- Temporal analysis per cluster ---
+    def temporal_summary(cluster_df):
+        # Group by year and month
+        if 'date_taken_year' not in cluster_df or 'date_taken_month' not in cluster_df:
+            return "No temporal information"
+        counts = cluster_df.groupby(['date_taken_year', 'date_taken_month']).size()
+        if len(counts) < 3:
+            return "Too few data points for temporal analysis"
+        max_count = counts.max()
+        total = counts.sum()
+        peak_frac = max_count / total
+        peak_date = counts.idxmax()
+        # Heuristic: if more than 40% of photos are in a single month, it's a one-time event
+        if peak_frac > 0.4:
+            return f"One-time event: {int(peak_date[1]):02d}/{int(peak_date[0])} ({int(100*peak_frac)}% of photos)"
+        # If there are photos in more than 8 different months, it's a recurrent site
+        if counts.index.nunique() > 8:
+            return "Recurrent site (activity throughout the year)"
+        # Otherwise, show most recurrent months for occasional/seasonal activity
+        top_months = counts.sort_values(ascending=False).head(3)
+        months_str = ', '.join([f"{int(m[1]):02d}/{int(m[0])} ({int(100*c/total)}%)" for m, c in top_months.items()])
+        return f"Occasional or seasonal activity. Most recurrent months: {months_str}"
+
     df_work = df.copy()
     df_work['cluster'] = labels
-    
-    unique_clusters = sorted([c for c in set(labels) if c >= 0], 
+
+    unique_clusters = sorted([c for c in set(labels) if c >= 0],
                             key=lambda x: (labels == x).sum(), reverse=True)
-    
+
+    # --- Automatic cluster naming ---
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    DOMAIN_STOPWORDS = set(["lyon", "foursquare:venue=4e0462c82271233b767cec75", "square", "iphoneography", "squareformat", "instagramapp", "uploaded:by=instagram", "picture", "Lyon", "Rhone","france", "europe", "villeurbanne", "auvergne-rhône-alpes", "rhone", "rhonealpes", "région", "region", "city", "urban", "metropole", "metropolis"])
+    cluster_tag_docs = []
+    cluster_id_list = []
+    cluster_tag_freq = {}
+    for cluster_id in unique_clusters:
+        mask = labels == cluster_id
+        tags = df_work.loc[mask, 'tags'].dropna().astype(str)
+        all_tags = []
+        for tag_str in tags:
+            all_tags.extend([t.strip() for t in tag_str.split(',') if t.strip()])
+        filtered_tags = [t for t in all_tags if t.lower() not in DOMAIN_STOPWORDS]
+        cluster_tag_docs.append(' '.join(filtered_tags))
+        cluster_id_list.append(cluster_id)
+        if filtered_tags:
+            tag_counter = Counter(filtered_tags)
+            most_common_tag, most_common_count = tag_counter.most_common(1)[0]
+            cluster_tag_freq[cluster_id] = (most_common_tag, most_common_count)
+        else:
+            cluster_tag_freq[cluster_id] = ("(no tags)", 0)
+    if cluster_tag_docs:
+        vectorizer = TfidfVectorizer(token_pattern=r"\S+")
+        tfidf_matrix = vectorizer.fit_transform(cluster_tag_docs)
+        feature_names = vectorizer.get_feature_names_out()
+        cluster_tag_tfidf = {}
+        for i, cluster_id in enumerate(cluster_id_list):
+            row = tfidf_matrix.getrow(i)
+            if row.nnz > 0:
+                top_idx = row.indices[row.data.argmax()]
+                top_tag = feature_names[top_idx]
+                cluster_tag_tfidf[cluster_id] = top_tag
+            else:
+                cluster_tag_tfidf[cluster_id] = "(no tags)"
+    else:
+        cluster_tag_tfidf = {cid: "(no tags)" for cid in cluster_id_list}
+
     clusters_data = {}
-    
-    for idx, cluster_id in enumerate(unique_clusters[:20]):
+    for idx, cluster_id in enumerate(unique_clusters):
         mask = labels == cluster_id
         cluster_df = df_work[mask]
         color = CLUSTER_COLORS[idx % len(CLUSTER_COLORS)]
-        
-        if len(cluster_df) > 300:
-            sample_df = cluster_df.sample(n=300, random_state=42)
-        else:
-            sample_df = cluster_df
-        
         photos = []
-        for _, row in sample_df.iterrows():
+        for _, row in cluster_df.iterrows():
             photos.append({
                 'lat': row['lat'],
                 'lng': row['long'],
@@ -61,28 +114,26 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
                 'tags': str(row['tags'])[:80],
                 'color': color
             })
-        
         clusters_data[str(cluster_id)] = {
             'photos': photos,
             'center': [cluster_df['lat'].mean(), cluster_df['long'].mean()],
             'color': color
         }
-    
-    for idx, cluster_id in enumerate(unique_clusters[:20]):
+
+    for idx, cluster_id in enumerate(unique_clusters):
         mask = labels == cluster_id
         cluster_df = df[mask]
-        
         center_lat = cluster_df['lat'].mean()
         center_long = cluster_df['long'].mean()
         size = len(cluster_df)
         users = cluster_df['user'].nunique()
         color = CLUSTER_COLORS[idx % len(CLUSTER_COLORS)]
-        
         top_tags = _get_top_tags(cluster_df, 5)
         tags_html = "<br>".join([f"• {t[0]} ({t[1]})" for t in top_tags]) if top_tags else "N/A"
-        
         radius = min(25, max(12, size / 400))
-        
+        freq_tag, freq_count = cluster_tag_freq.get(cluster_id, ("(no tags)", 0))
+        tfidf_tag = cluster_tag_tfidf.get(cluster_id, "(no tags)")
+        temporal_info = temporal_summary(cluster_df)
         marker = folium.CircleMarker(
             location=[center_lat, center_long],
             radius=radius,
@@ -92,22 +143,23 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
             fillOpacity=0.7,
             weight=3
         )
-        
         popup_html = f"""
-        <div style="font-family: Arial, sans-serif; width: 220px;">
-            <h4 style="margin: 0 0 10px 0; color: {color};">Cluster {cluster_id}</h4>
-            <p style="margin: 5px 0;"><b>📷 Photos:</b> {size:,}</p>
-            <p style="margin: 5px 0;"><b>👥 Users:</b> {users}</p>
-            <p style="margin: 5px 0;"><b>🏷️ Top tags:</b></p>
-            <p style="margin: 0 0 10px 10px; font-size: 12px;">{tags_html}</p>
-            <button onclick="showCluster({cluster_id})" 
-                    style="background: {color}; color: white; padding: 8px 15px; 
-                           border: none; border-radius: 4px; cursor: pointer; width: 100%;">
-                🔍 Show {min(300, size)} photos
+        <div style='font-family: Arial, sans-serif; width: 260px;'>
+            <h3 style='margin: 0 0 10px 0; color: {color}; font-size: 20px;'>🏷️ {tfidf_tag}</h3>
+            <p style='margin: 5px 0; font-size: 14px;'><b>Alternative name:</b> <span style='color: #333;'>{freq_tag}</span></p>
+            <p style='margin: 5px 0; color: #005;'>{temporal_info}</p>
+            <p style='margin: 5px 0;'><b>📷 Photos:</b> {size:,}</p>
+            <p style='margin: 5px 0;'><b>👥 Users:</b> {users}</p>
+            <p style='margin: 5px 0;'><b>🏷️ Top tags:</b></p>
+            <p style='margin: 0 0 10px 10px; font-size: 12px;'>{tags_html}</p>
+            <button onclick='showCluster({cluster_id})' 
+                    style='background: {color}; color: white; padding: 8px 15px; 
+                         border: none; border-radius: 4px; cursor: pointer; width: 100%;'>
+                🔍 Show {size:,} photos
             </button>
         </div>
         """
-        marker.add_child(folium.Popup(popup_html, max_width=250))
+        marker.add_child(folium.Popup(popup_html, max_width=280))
         marker.add_to(m)
     
     js_code = f"""

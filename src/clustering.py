@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import time
+import hdbscan
 from sklearn.cluster import DBSCAN, KMeans, MiniBatchKMeans, AgglomerativeClustering
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
@@ -14,6 +15,43 @@ warnings.filterwarnings('ignore')
 MAX_SAMPLES_HIERARCHICAL = 8000  # Muestra máxima para hierarchical (es O(n²))
 MAX_SAMPLES_SILHOUETTE = 10000   # Muestra para calcular silhouette (es lento)
 USE_MINIBATCH_KMEANS = True      # Usar MiniBatchKMeans para mayor velocidad
+
+
+# =============================================================================
+# HDBSCAN CLUSTERING (Densidad Variable)
+# =============================================================================
+
+def run_hdbscan(df: pd.DataFrame, 
+                min_cluster_size: int = 50,
+                min_samples: int = 10,
+                cluster_selection_epsilon: float = 0.0) -> np.ndarray:
+    """
+    HDBSCAN: Hierarchical DBSCAN para clustering con densidad variable.
+    
+    Ventajas sobre DBSCAN:
+    - NO necesita especificar eps - lo ajusta automáticamente por zona
+    - Maneja densidades variables (centro denso + afueras menos densas)
+    - Detecta ruido como DBSCAN
+    - Encuentra clusters de diferentes tamaños automáticamente
+    
+    Parámetros:
+    - min_cluster_size: Tamaño mínimo de un cluster (importante!)
+    - min_samples: Puntos mínimos para ser considerado "core point"
+    - cluster_selection_epsilon: Si > 0, fusiona clusters muy cercanos
+    """
+    coords = df[['lat', 'long']].values
+    
+    clusterer = hdbscan.HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_epsilon=cluster_selection_epsilon,
+        metric='euclidean',
+        cluster_selection_method='eom',  # Excess of Mass - mejor para clusters variados
+        core_dist_n_jobs=-1
+    )
+    
+    labels = clusterer.fit_predict(coords)
+    return labels
 
 
 # =============================================================================
@@ -644,6 +682,240 @@ def get_top_tags(df: pd.DataFrame, n: int = 5) -> list:
             all_tags.extend(tags)
     
     return Counter(all_tags).most_common(n)
+
+
+# =============================================================================
+# SUB-CLUSTERING JERÁRQUICO
+# =============================================================================
+
+def run_hierarchical_subclustering(df: pd.DataFrame, 
+                                    labels: np.ndarray,
+                                    min_cluster_size: int = 300,
+                                    sub_eps: float = 0.001,
+                                    sub_min_samples: int = 15,
+                                    verbose: bool = True) -> Tuple[np.ndarray, dict]:
+    """
+    Aplica sub-clustering dentro de clusters grandes.
+    
+    Esto es útil para zonas muy turísticas (como Vieux Lyon) donde un eps grande
+    agrupa todo en un solo cluster, pero en realidad hay múltiples puntos de interés
+    específicos (catedral, plaza, museo, etc.).
+    
+    Args:
+        df: DataFrame con los datos
+        labels: Labels del clustering principal
+        min_cluster_size: Tamaño mínimo de cluster para hacer sub-clustering
+        sub_eps: eps más pequeño para sub-clustering (~0.001 ≈ 100m)
+        sub_min_samples: min_samples para sub-clusters
+        verbose: Mostrar progreso
+    
+    Returns:
+        new_labels: Labels con sub-clusters (formato: cluster_id * 1000 + subcluster_id)
+        subclusters_info: Información detallada de los sub-clusters
+    """
+    if verbose:
+        print("\n" + "=" * 70)
+        print("🔍 SUB-CLUSTERING JERÁRQUICO")
+        print(f"   Parámetros: min_cluster_size={min_cluster_size}, sub_eps={sub_eps}, sub_min_samples={sub_min_samples}")
+        print("=" * 70)
+    
+    coords = df[['lat', 'long']].values
+    new_labels = labels.copy()
+    subclusters_info = {}
+    
+    # Identificar clusters grandes para hacer sub-clustering
+    unique_clusters = [c for c in set(labels) if c >= 0]
+    large_clusters = []
+    
+    for cluster_id in unique_clusters:
+        mask = labels == cluster_id
+        size = mask.sum()
+        if size >= min_cluster_size:
+            large_clusters.append((cluster_id, size))
+    
+    large_clusters.sort(key=lambda x: x[1], reverse=True)
+    
+    if verbose:
+        print(f"\n📊 Clusters grandes encontrados ({len(large_clusters)} de {len(unique_clusters)} totales):")
+        for cid, size in large_clusters:
+            print(f"   Cluster {cid}: {size:,} fotos")
+    
+    total_subclusters = 0
+    
+    for cluster_id, cluster_size in large_clusters:
+        mask = labels == cluster_id
+        cluster_df = df[mask].copy()
+        cluster_coords = coords[mask]
+        cluster_indices = np.where(mask)[0]
+        
+        if verbose:
+            print(f"\n{'─' * 50}")
+            print(f"🔬 Analizando Cluster {cluster_id} ({cluster_size:,} fotos)...")
+        
+        # Aplicar DBSCAN con eps más pequeño dentro del cluster
+        sub_dbscan = DBSCAN(eps=sub_eps, min_samples=sub_min_samples, metric='euclidean', n_jobs=-1)
+        sub_labels = sub_dbscan.fit_predict(cluster_coords)
+        
+        n_subclusters = len(set(sub_labels)) - (1 if -1 in sub_labels else 0)
+        n_subnoise = (sub_labels == -1).sum()
+        
+        if verbose:
+            print(f"   ✓ Sub-clusters encontrados: {n_subclusters}")
+            print(f"   ✓ Ruido interno: {n_subnoise:,} ({100*n_subnoise/len(sub_labels):.1f}%)")
+        
+        # Crear nuevas etiquetas: cluster_id * 1000 + subcluster_id
+        # Esto permite identificar tanto el cluster padre como el sub-cluster
+        subcluster_details = []
+        
+        for sub_id in sorted(set(sub_labels)):
+            sub_mask = sub_labels == sub_id
+            sub_indices = cluster_indices[sub_mask]
+            
+            if sub_id == -1:
+                # El ruido interno mantiene la etiqueta del cluster padre
+                new_labels[sub_indices] = cluster_id * 1000
+            else:
+                new_label = cluster_id * 1000 + sub_id + 1
+                new_labels[sub_indices] = new_label
+                
+                # Calcular info del sub-cluster
+                sub_df = cluster_df[sub_mask]
+                center_lat = sub_df['lat'].mean()
+                center_long = sub_df['long'].mean()
+                top_tags = get_top_tags(sub_df, n=3)
+                
+                subcluster_details.append({
+                    'sub_id': sub_id,
+                    'full_label': new_label,
+                    'size': len(sub_df),
+                    'users': sub_df['user'].nunique(),
+                    'center': (center_lat, center_long),
+                    'top_tags': top_tags
+                })
+        
+        subcluster_details.sort(key=lambda x: x['size'], reverse=True)
+        
+        subclusters_info[cluster_id] = {
+            'original_size': cluster_size,
+            'n_subclusters': n_subclusters,
+            'noise_count': n_subnoise,
+            'subclusters': subcluster_details
+        }
+        
+        total_subclusters += n_subclusters
+        
+        if verbose and n_subclusters > 0:
+            print(f"\n   📍 Sub-clusters en Cluster {cluster_id}:")
+            for sc in subcluster_details[:5]:  # Top 5
+                tags_str = ", ".join([t[0] for t in sc['top_tags']])
+                print(f"      • Sub {sc['sub_id']}: {sc['size']:,} fotos, {sc['users']} usuarios")
+                print(f"        Centro: ({sc['center'][0]:.4f}, {sc['center'][1]:.4f})")
+                print(f"        Tags: {tags_str}")
+    
+    if verbose:
+        print(f"\n{'=' * 70}")
+        print(f"✅ SUB-CLUSTERING COMPLETADO")
+        print(f"   Clusters procesados: {len(large_clusters)}")
+        print(f"   Total sub-clusters creados: {total_subclusters}")
+        print(f"   Labels únicos resultantes: {len(set(new_labels))}")
+        print("=" * 70)
+    
+    return new_labels, subclusters_info
+
+
+def analyze_subclusters(df: pd.DataFrame, 
+                        labels: np.ndarray, 
+                        subclusters_info: dict) -> dict:
+    """
+    Analiza los resultados del sub-clustering.
+    
+    Returns:
+        Diccionario con análisis completo incluyendo jerarquía
+    """
+    # Análisis general
+    unique_labels = set(labels)
+    n_total = len(unique_labels) - (1 if -1 in unique_labels else 0)
+    n_noise = (labels == -1).sum()
+    
+    # Reconstruir jerarquía
+    hierarchy = {}
+    
+    for label in sorted(unique_labels):
+        if label == -1:
+            continue
+        
+        parent_cluster = label // 1000
+        sub_id = label % 1000
+        
+        if parent_cluster not in hierarchy:
+            hierarchy[parent_cluster] = {
+                'subclusters': [],
+                'total_size': 0
+            }
+        
+        mask = labels == label
+        cluster_df = df[mask]
+        
+        sub_info = {
+            'label': label,
+            'sub_id': sub_id,
+            'size': len(cluster_df),
+            'users': cluster_df['user'].nunique(),
+            'center': (cluster_df['lat'].mean(), cluster_df['long'].mean()),
+            'top_tags': get_top_tags(cluster_df, n=5)
+        }
+        
+        hierarchy[parent_cluster]['subclusters'].append(sub_info)
+        hierarchy[parent_cluster]['total_size'] += len(cluster_df)
+    
+    # Ordenar sub-clusters por tamaño
+    for parent in hierarchy:
+        hierarchy[parent]['subclusters'].sort(key=lambda x: x['size'], reverse=True)
+    
+    return {
+        'n_total_clusters': n_total,
+        'n_noise': n_noise,
+        'noise_pct': 100 * n_noise / len(labels),
+        'hierarchy': hierarchy,
+        'subclusters_info': subclusters_info
+    }
+
+
+def print_subclusters_report(analysis: dict) -> None:
+    """Imprime un reporte detallado del sub-clustering."""
+    print("\n" + "=" * 70)
+    print("📊 REPORTE DE SUB-CLUSTERING")
+    print("=" * 70)
+    print(f"Total clusters/sub-clusters: {analysis['n_total_clusters']}")
+    print(f"Puntos de ruido: {analysis['n_noise']:,} ({analysis['noise_pct']:.1f}%)")
+    
+    print("\n📍 JERARQUÍA DE CLUSTERS:")
+    print("-" * 70)
+    
+    # Ordenar por tamaño total
+    sorted_parents = sorted(
+        analysis['hierarchy'].items(),
+        key=lambda x: x[1]['total_size'],
+        reverse=True
+    )
+    
+    for parent_id, parent_info in sorted_parents[:10]:
+        subclusters = parent_info['subclusters']
+        total = parent_info['total_size']
+        
+        print(f"\n🏛️  CLUSTER {parent_id} ({total:,} fotos, {len(subclusters)} sub-áreas)")
+        
+        for i, sc in enumerate(subclusters[:5]):
+            tags = ", ".join([t[0] for t in sc['top_tags'][:3]])
+            indent = "    ├──" if i < len(subclusters[:5]) - 1 else "    └──"
+            print(f"{indent} Sub {sc['sub_id']}: {sc['size']:,} fotos ({sc['users']} usuarios)")
+            print(f"    │      📍 ({sc['center'][0]:.4f}, {sc['center'][1]:.4f})")
+            print(f"    │      🏷️  {tags}")
+        
+        if len(subclusters) > 5:
+            print(f"    └── ... y {len(subclusters) - 5} sub-clusters más")
+    
+    print("\n" + "=" * 70)
 
 
 # =============================================================================
