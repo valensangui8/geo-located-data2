@@ -32,9 +32,9 @@ def create_map(df: pd.DataFrame, labels: np.ndarray = None, output_path: str = N
 
 
 def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarray) -> None:
-    # --- Temporal analysis per cluster ---
+    #Temporal analysis per cluster
     def temporal_summary(cluster_df):
-        # Group by year and month
+        #Group by year and month
         if 'date_taken_year' not in cluster_df or 'date_taken_month' not in cluster_df:
             return "No temporal information"
         counts = cluster_df.groupby(['date_taken_year', 'date_taken_month']).size()
@@ -44,8 +44,8 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
         total = counts.sum()
         peak_frac = max_count / total
         peak_date = counts.idxmax()
-        # Heuristic: if more than 40% of photos are in a single month, it's a one-time event
-        if peak_frac > 0.4:
+        # Heuristic: if more than 30% of photos are in a single month, it's a one-time event
+        if peak_frac > 0.3:
             return f"One-time event: {int(peak_date[1]):02d}/{int(peak_date[0])} ({int(100*peak_frac)}% of photos)"
         # If there are photos in more than 8 different months, it's a recurrent site
         if counts.index.nunique() > 8:
@@ -61,7 +61,7 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
     unique_clusters = sorted([c for c in set(labels) if c >= 0],
                             key=lambda x: (labels == x).sum(), reverse=True)
 
-    # --- Automatic cluster naming ---
+    #Automatic cluster naming 
     from sklearn.feature_extraction.text import TfidfVectorizer
     DOMAIN_STOPWORDS = set(["lyon", "foursquare:venue=4e0462c82271233b767cec75", "square", "iphoneography", "squareformat", "instagramapp", "uploaded:by=instagram", "picture", "Lyon", "Rhone","france", "europe", "villeurbanne", "auvergne-rhône-alpes", "rhone", "rhonealpes", "région", "region", "city", "urban", "metropole", "metropolis"])
     cluster_tag_docs = []
@@ -145,17 +145,17 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
         )
         popup_html = f"""
         <div style='font-family: Arial, sans-serif; width: 260px;'>
-            <h3 style='margin: 0 0 10px 0; color: {color}; font-size: 20px;'>🏷️ {tfidf_tag}</h3>
+            <h3 style='margin: 0 0 10px 0; color: {color}; font-size: 20px;'>{tfidf_tag}</h3>
             <p style='margin: 5px 0; font-size: 14px;'><b>Alternative name:</b> <span style='color: #333;'>{freq_tag}</span></p>
             <p style='margin: 5px 0; color: #005;'>{temporal_info}</p>
-            <p style='margin: 5px 0;'><b>📷 Photos:</b> {size:,}</p>
-            <p style='margin: 5px 0;'><b>👥 Users:</b> {users}</p>
-            <p style='margin: 5px 0;'><b>🏷️ Top tags:</b></p>
+            <p style='margin: 5px 0;'><b>Photos:</b> {size:,}</p>
+            <p style='margin: 5px 0;'><b>Users:</b> {users}</p>
+            <p style='margin: 5px 0;'><b>Top tags:</b></p>
             <p style='margin: 0 0 10px 10px; font-size: 12px;'>{tags_html}</p>
             <button onclick='showCluster({cluster_id})' 
                     style='background: {color}; color: white; padding: 8px 15px; 
                          border: none; border-radius: 4px; cursor: pointer; width: 100%;'>
-                🔍 Show {size:,} photos
+                Show {size:,} photos
             </button>
         </div>
         """
@@ -193,14 +193,14 @@ def _add_interactive_clusters(m: folium.Map, df: pd.DataFrame, labels: np.ndarra
         
         data.photos.forEach(function(photo) {{
             var popupContent = '<div style="font-family: Arial; width: 240px;">' +
-                '<p><b>📷 ID:</b> ' + photo.id + '</p>' +
-                '<p><b>👤 User:</b> ' + photo.user + '</p>' +
-                '<p><b>📅 Date:</b> ' + photo.date + '</p>' +
-                '<p><b>🏷️ Tags:</b> ' + photo.tags + '</p>' +
+                '<p><b>ID:</b> ' + photo.id + '</p>' +
+                '<p><b>User:</b> ' + photo.user + '</p>' +
+                '<p><b>Date:</b> ' + photo.date + '</p>' +
+                '<p><b>Tags:</b> ' + photo.tags + '</p>' +
                 '<a href="https://www.flickr.com/photos/' + photo.user + '/' + photo.id + '" ' +
                 'target="_blank" style="display: block; background: #0063dc; color: white; ' +
                 'padding: 8px; text-align: center; text-decoration: none; border-radius: 4px; margin-top: 10px;">' +
-                '🔗 View on Flickr</a></div>';
+                'View on Flickr</a></div>';
             
             var marker = L.circleMarker([photo.lat, photo.lng], {{
                 radius: 8,

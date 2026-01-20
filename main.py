@@ -27,32 +27,26 @@ def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
     print("\n" + "=" * 70)
-    print("🗺️  LYON GEO-LOCATED DATA MINING")
+    print("LYON GEO-LOCATED DATA MINING")
     print("    Descubrimiento de áreas de interés turístico")
     print("=" * 70)
     
-    # =========================================================================
-    # PASO 1: Cargar datos
-    # =========================================================================
-    print("\n[1/4] 📂 Cargando datos...")
+    # Cargar datos
+    print("\n[1/4] Cargando datos...")
     df_raw = load_flickr_data(DATA_PATH)
     info = get_data_info(df_raw)
     print_data_info(info)
     
-    # =========================================================================
-    # PASO 2: Limpieza de datos
-    # =========================================================================
-    print("\n[2/4] 🧹 Limpiando datos...")
+    # Limpieza de datos
+    print("\n[2/4] Limpiando datos...")
     df_clean, report = clean_data(df_raw, verbose=True)
     report.print_report()
     
     df_clean.to_csv(OUTPUT_DIR / "flickr_cleaned.csv", index=False)
-    print(f"  ✓ Datos limpios guardados en: {OUTPUT_DIR / 'flickr_cleaned.csv'}")
+    print(f"  Datos limpios guardados en: {OUTPUT_DIR / 'flickr_cleaned.csv'}")
     
-    # =========================================================================
-    # PASO 3: HDBSCAN - Clustering de densidad variable
-    # =========================================================================
-    print("\n[3/4] 🔬 Ejecutando HDBSCAN...")
+    # HDBSCAN - Clustering de densidad variable
+    print("\n[3/4] Ejecutando HDBSCAN...")
     print(f"      min_cluster_size = {HDBSCAN_MIN_CLUSTER_SIZE}")
     print(f"      min_samples = {HDBSCAN_MIN_SAMPLES}")
     print("      (HDBSCAN ajusta automáticamente la densidad)")
@@ -65,31 +59,27 @@ def main():
     # Mostrar resultados
     print_results(analysis)
     
-    # =========================================================================
-    # PASO 4: Crear visualización
-    # =========================================================================
-    print("\n[4/4] 🗺️  Creando mapa interactivo...")
+    # Crear visualización
+    print("\n[4/4] Creando mapa interactivo...")
     create_map(df_clean, labels=labels, output_path=str(OUTPUT_DIR / "lyon_map.html"))
     
-    # =========================================================================
     # RESUMEN FINAL
-    # =========================================================================
     print("\n" + "=" * 70)
-    print("✅ PROCESO COMPLETADO")
+    print("PROCESO COMPLETADO")
     print("=" * 70)
-    print(f"  📊 Datos originales:  {len(df_raw):,} filas")
-    print(f"  📊 Datos limpios:     {len(df_clean):,} filas")
-    print(f"  📊 Reducción:         {100*(1-len(df_clean)/len(df_raw)):.1f}%")
+    print(f"  Datos originales:  {len(df_raw):,} filas")
+    print(f"  Datos limpios:     {len(df_clean):,} filas")
+    print(f"  Reducción:         {100*(1-len(df_clean)/len(df_raw)):.1f}%")
     print()
-    print(f"  🔵 HDBSCAN (min_cluster_size={HDBSCAN_MIN_CLUSTER_SIZE}, min_samples={HDBSCAN_MIN_SAMPLES}):")
-    print(f"     📍 Clusters: {analysis['n_clusters']}")
-    print(f"     🔇 Ruido: {analysis['n_noise']:,} puntos ({analysis['noise_pct']:.1f}%)")
+    print(f"  HDBSCAN (min_cluster_size={HDBSCAN_MIN_CLUSTER_SIZE}, min_samples={HDBSCAN_MIN_SAMPLES}):")
+    print(f"     Clusters: {analysis['n_clusters']}")
+    print(f"     Ruido: {analysis['n_noise']:,} puntos ({analysis['noise_pct']:.1f}%)")
     if analysis.get('metrics'):
-        print(f"     📈 Silhouette: {analysis['metrics'].get('silhouette', 'N/A'):.4f}")
-        print(f"     📈 Calinski-Harabasz: {analysis['metrics'].get('calinski_harabasz', 'N/A'):.1f}")
-        print(f"     📈 Davies-Bouldin: {analysis['metrics'].get('davies_bouldin', 'N/A'):.4f}")
+        print(f"     Silhouette: {analysis['metrics'].get('silhouette', 'N/A'):.4f}")
+        print(f"     Calinski-Harabasz: {analysis['metrics'].get('calinski_harabasz', 'N/A'):.1f}")
+        print(f"     Davies-Bouldin: {analysis['metrics'].get('davies_bouldin', 'N/A'):.4f}")
     print()
-    print(f"  📁 Archivos generados:")
+    print(f"  Archivos generados:")
     print(f"     - {OUTPUT_DIR / 'flickr_cleaned.csv'}")
     print(f"     - {OUTPUT_DIR / 'lyon_map.html'}")
     print("=" * 70)

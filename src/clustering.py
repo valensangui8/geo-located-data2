@@ -11,34 +11,31 @@ from typing import Tuple, List, Dict, Optional
 import warnings
 warnings.filterwarnings('ignore')
 
-# Configuración para datasets grandes
-MAX_SAMPLES_HIERARCHICAL = 8000  # Muestra máxima para hierarchical (es O(n²))
-MAX_SAMPLES_SILHOUETTE = 10000   # Muestra para calcular silhouette (es lento)
-USE_MINIBATCH_KMEANS = True      # Usar MiniBatchKMeans para mayor velocidad
+#Configuración para datasets grandes
+MAX_SAMPLES_HIERARCHICAL = 8000  #Muestra máxima para hierarchical (es O(n"2))
+MAX_SAMPLES_SILHOUETTE = 10000   #Muestra para calcular silhouette (es lento)
+USE_MINIBATCH_KMEANS = True      #Usar para mayor velocidad
 
 
-# =============================================================================
 # HDBSCAN CLUSTERING (Densidad Variable)
-# =============================================================================
-
 def run_hdbscan(df: pd.DataFrame, 
                 min_cluster_size: int = 50,
                 min_samples: int = 10,
                 cluster_selection_epsilon: float = 0.0) -> np.ndarray:
+    
     """
     HDBSCAN: Hierarchical DBSCAN para clustering con densidad variable.
-    
     Ventajas sobre DBSCAN:
-    - NO necesita especificar eps - lo ajusta automáticamente por zona
-    - Maneja densidades variables (centro denso + afueras menos densas)
-    - Detecta ruido como DBSCAN
-    - Encuentra clusters de diferentes tamaños automáticamente
-    
+    NO necesita especificar eps - lo ajusta automáticamente por zona
+    Maneja densidades variables (centro denso + afueras menos densas)
+    Detecta ruido como DBSCAN
+    Encuentra clusters de diferentes tamaños automáticamente
     Parámetros:
-    - min_cluster_size: Tamaño mínimo de un cluster (importante!)
-    - min_samples: Puntos mínimos para ser considerado "core point"
-    - cluster_selection_epsilon: Si > 0, fusiona clusters muy cercanos
-    """
+    min_cluster_size: Tamaño mínimo de un cluster (importante!)
+    min_samples: Puntos mínimos para ser considerado "core point"
+    cluster_selection_epsilon: Si > 0, fusiona clusters muy cercanos"""
+
+
     coords = df[['lat', 'long']].values
     
     clusterer = hdbscan.HDBSCAN(
@@ -54,24 +51,21 @@ def run_hdbscan(df: pd.DataFrame,
     return labels
 
 
-# =============================================================================
 # DBSCAN CLUSTERING
-# =============================================================================
-
 def run_dbscan(df: pd.DataFrame, eps: float = 0.003, min_samples: int = 50) -> np.ndarray:
+
     """
     DBSCAN: Density-Based Spatial Clustering of Applications with Noise.
-    
     Ventajas:
     - No requiere especificar número de clusters
     - Detecta clusters de forma arbitraria
     - Identifica puntos de ruido (outliers)
     - Ideal para datos geográficos con densidades variables
-    
     Parámetros:
     - eps: Radio máximo de vecindad (~0.001 ≈ 100m en Lyon)
-    - min_samples: Mínimo de puntos para formar un cluster
-    """
+    - min_samples: Mínimo de puntos para formar un cluster11"""
+
+
     coords = df[['lat', 'long']].values
     dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean', n_jobs=-1)
     labels = dbscan.fit_predict(coords)
@@ -82,9 +76,9 @@ def optimize_dbscan(df: pd.DataFrame,
                     eps_range: List[float] = None,
                     min_samples_range: List[int] = None,
                     verbose: bool = True) -> Tuple[dict, np.ndarray]:
-    """
-    Optimiza los parámetros de DBSCAN usando el método del codo y métricas de evaluación.
-    """
+    
+    """ Optimiza los parámetros de DBSCAN usando el método del codo y métricas de evaluación."""
+    
     if eps_range is None:
         eps_range = [0.001, 0.002, 0.003, 0.004, 0.005]
     if min_samples_range is None:
@@ -92,9 +86,9 @@ def optimize_dbscan(df: pd.DataFrame,
     
     coords = df[['lat', 'long']].values
     
-    # Método del codo para estimar eps óptimo
+    #Método del codo para estimar eps óptimo
     if verbose:
-        print("    ⏳ Calculando eps óptimo con k-distance...")
+        print("    Calculando eps óptimo con k-distance...")
     
     start_time = time.time()
     k = 50  # min_samples típico
@@ -102,13 +96,13 @@ def optimize_dbscan(df: pd.DataFrame,
     distances, _ = nbrs.kneighbors(coords)
     k_distances = np.sort(distances[:, k-1])
     
-    # Encontrar el "codo" usando la segunda derivada
+    #Encontrar el "codo" usando la segunda derivada
     gradients = np.gradient(k_distances)
     elbow_idx = np.argmax(gradients > np.mean(gradients) * 2)
     suggested_eps = k_distances[elbow_idx] if elbow_idx > 0 else 0.003
     
     if verbose:
-        print(f"    ✓ Eps sugerido: {suggested_eps:.4f} ({time.time()-start_time:.1f}s)")
+        print(f"    Eps sugerido: {suggested_eps:.4f} ({time.time()-start_time:.1f}s)")
     
     best_score = -1
     best_params = {'eps': 0.003, 'min_samples': 50}
@@ -117,7 +111,7 @@ def optimize_dbscan(df: pd.DataFrame,
     
     total_combos = len(eps_range) * len(min_samples_range)
     if verbose:
-        print(f"    ⏳ Probando {total_combos} combinaciones de parámetros...")
+        print(f"    Probando {total_combos} combinaciones de parámetros...")
     
     combo_count = 0
     for eps in eps_range:
@@ -174,32 +168,19 @@ def optimize_dbscan(df: pd.DataFrame,
                     print(f"clusters={n_clusters}, ruido={noise_pct:.1f}% (descartado) ({time.time()-start_combo:.1f}s)")
     
     if verbose:
-        print(f"    ✓ Mejores parámetros: eps={best_params['eps']}, min_samples={best_params['min_samples']}")
+        print(f"    Mejores parámetros: eps={best_params['eps']}, min_samples={best_params['min_samples']}")
     
     return best_params, best_labels, results
 
 
-# =============================================================================
 # K-MEANS CLUSTERING
-# =============================================================================
-
 def run_kmeans(df: pd.DataFrame, n_clusters: int = 20, random_state: int = 42) -> np.ndarray:
-    """
-    K-Means: Clustering por partición basado en centroides.
     
-    Ventajas:
-    - Rápido y escalable
-    - Fácil de interpretar
-    - Buenos resultados con clusters esféricos
-    
-    Desventajas:
-    - Requiere especificar K (número de clusters)
-    - Sensible a outliers
-    - Asume clusters de tamaño similar
-    
-    Parámetros:
-    - n_clusters: Número de clusters a formar
-    """
+    """K-Means: Clustering por partición basado en centroides.
+    Ventajas:Rápido y escalable Fácil de interpretar Buenos rsultados con clusters esféricos
+    Desventajas: Requiere especificar K (número de clusters) Sensible a outliers Asume clusters de tamaño similar
+    Parámetros: n_clusters: Número de clusters a formar"""
+
     coords = df[['lat', 'long']].values
     
     # Escalar coordenadas para mejor convergencia
@@ -237,7 +218,7 @@ def optimize_kmeans(df: pd.DataFrame,
         sample_idx = np.random.choice(len(coords), MAX_SAMPLES_SILHOUETTE, replace=False)
         coords_eval = coords_scaled[sample_idx]
         if verbose:
-            print(f"    ℹ️  Usando muestra de {MAX_SAMPLES_SILHOUETTE} puntos para evaluación")
+            print(f"    Usando muestra de {MAX_SAMPLES_SILHOUETTE} puntos para evaluación")
     else:
         coords_eval = coords_scaled
         sample_idx = None
@@ -247,7 +228,7 @@ def optimize_kmeans(df: pd.DataFrame,
     calinski_scores = []
     
     if verbose:
-        print(f"    ⏳ Probando K de {k_range[0]} a {k_range[-1]}...")
+        print(f"    Probando K de {k_range[0]} a {k_range[-1]}...")
     
     for i, k in enumerate(k_range):
         start = time.time()
@@ -287,9 +268,9 @@ def optimize_kmeans(df: pd.DataFrame,
     optimal_k = k_range[max(elbow_idx, best_sil_idx)]
     
     if verbose:
-        print(f"    ✓ K óptimo por método del codo: {k_range[elbow_idx]}")
-        print(f"    ✓ K óptimo por silhouette: {k_range[best_sil_idx]}")
-        print(f"    ✓ K seleccionado: {optimal_k}")
+        print(f"    K óptimo por método del codo: {k_range[elbow_idx]}")
+        print(f"    K óptimo por silhouette: {k_range[best_sil_idx]}")
+        print(f"    K seleccionado: {optimal_k}")
     
     best_labels = run_kmeans(df, n_clusters=optimal_k)
     
@@ -305,30 +286,23 @@ def optimize_kmeans(df: pd.DataFrame,
     return {'n_clusters': optimal_k}, best_labels, results
 
 
-# =============================================================================
 # HIERARCHICAL CLUSTERING
-# =============================================================================
-
 def run_hierarchical(df: pd.DataFrame, 
                      n_clusters: int = 20,
                      linkage: str = 'ward',
                      sample_size: int = None) -> np.ndarray:
-    """
-    Clustering Jerárquico Aglomerativo.
     
+    """Clustering Jerárquico Aglomerativo.
     Ventajas:
     - No requiere especificar K inicialmente (se puede cortar el dendrograma)
     - Produce una jerarquía de clusters (dendrograma)
     - Diferentes criterios de enlace para diferentes formas de clusters
-    
     Desventajas:
     - Computacionalmente costoso O(n²) o O(n³)
     - No escala bien con grandes datasets
-    
     Parámetros:
     - n_clusters: Número de clusters
-    - linkage: 'ward' (minimiza varianza), 'complete', 'average', 'single'
-    """
+    - linkage: 'ward' (minimiza varianza), 'complete', 'average', 'single'"""
     coords = df[['lat', 'long']].values
     
     # Para datasets grandes, usar una muestra
@@ -455,11 +429,7 @@ def optimize_hierarchical(df: pd.DataFrame,
     
     return best_params, best_labels, results
 
-
-# =============================================================================
 # ANÁLISIS Y COMPARACIÓN
-# =============================================================================
-
 def analyze_clusters(df: pd.DataFrame, labels: np.ndarray, algorithm_name: str = "Clustering") -> dict:
     """Analiza los resultados de cualquier algoritmo de clustering."""
     n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
@@ -530,12 +500,12 @@ def compare_algorithms(df: pd.DataFrame,
     
     print("\n" + "=" * 70)
     print("COMPARACIÓN DE ALGORITMOS DE CLUSTERING")
-    print(f"  📊 Dataset: {len(df):,} puntos")
+    print(f" Dataset: {len(df):,} puntos")
     print("=" * 70)
     
     # 1. DBSCAN
     print("\n" + "-" * 70)
-    print("[1/3] 🔵 DBSCAN (Density-Based)")
+    print("[1/3]  DBSCAN (Density-Based)")
     print("-" * 70)
     dbscan_start = time.time()
     if optimize:
@@ -552,12 +522,12 @@ def compare_algorithms(df: pd.DataFrame,
     analysis['optimization'] = opt_results
     analysis['labels'] = labels
     results['dbscan'] = analysis
-    print(f"  ✅ DBSCAN completado en {time.time()-dbscan_start:.1f}s")
+    print(f"  DBSCAN completado en {time.time()-dbscan_start:.1f}s")
     print(f"     Clusters: {analysis['n_clusters']}, Ruido: {analysis['noise_pct']:.1f}%")
     
     # 2. K-Means
     print("\n" + "-" * 70)
-    print("[2/3] 🟢 K-Means (Partición por centroides)")
+    print("[2/3]  K-Means (Partición por centroides)")
     print("-" * 70)
     kmeans_start = time.time()
     if optimize:
@@ -574,16 +544,16 @@ def compare_algorithms(df: pd.DataFrame,
     analysis['optimization'] = opt_results
     analysis['labels'] = labels
     results['kmeans'] = analysis
-    print(f"  ✅ K-Means completado en {time.time()-kmeans_start:.1f}s")
+    print(f"  K-Means completado en {time.time()-kmeans_start:.1f}s")
     print(f"     Clusters: {analysis['n_clusters']}")
     
     # 3. Hierarchical
     print("\n" + "-" * 70)
-    print("[3/3] 🟣 Clustering Jerárquico (Aglomerativo)")
+    print("[3/3]  Clustering Jerárquico (Aglomerativo)")
     print("-" * 70)
     hier_start = time.time()
     if optimize:
-        print("  ⏳ Optimizando parámetros...")
+        print("  Optimizando parámetros...")
         params, labels, opt_results = optimize_hierarchical(df, verbose=verbose)
     else:
         params = {'n_clusters': 20, 'linkage': 'ward'}
@@ -596,11 +566,11 @@ def compare_algorithms(df: pd.DataFrame,
     analysis['optimization'] = opt_results
     analysis['labels'] = labels
     results['hierarchical'] = analysis
-    print(f"  ✅ Hierarchical completado en {time.time()-hier_start:.1f}s")
+    print(f"   Hierarchical completado en {time.time()-hier_start:.1f}s")
     print(f"     Clusters: {analysis['n_clusters']}")
     
     print("\n" + "=" * 70)
-    print(f"✅ COMPARACIÓN COMPLETADA en {time.time()-total_start:.1f}s")
+    print(f" COMPARACIÓN COMPLETADA en {time.time()-total_start:.1f}s")
     print("=" * 70)
     
     return results
@@ -626,13 +596,13 @@ def print_comparison(results: Dict[str, dict]) -> None:
     print("-" * 74)
     
     # Interpretación de métricas
-    print("\n📊 INTERPRETACIÓN DE MÉTRICAS:")
+    print("\n INTERPRETACIÓN DE MÉTRICAS:")
     print("  • Silhouette: [-1, 1] Mayor es mejor (cohesión y separación)")
     print("  • Calinski-Harabasz: Mayor es mejor (varianza entre/dentro clusters)")
     print("  • Davies-Bouldin: Menor es mejor (similitud entre clusters)")
     
     # Recomendación
-    print("\n💡 ANÁLISIS:")
+    print("\n ANÁLISIS:")
     
     # Encontrar el mejor por silhouette
     best_sil = max(results.items(), 
@@ -684,244 +654,7 @@ def get_top_tags(df: pd.DataFrame, n: int = 5) -> list:
     return Counter(all_tags).most_common(n)
 
 
-# =============================================================================
-# SUB-CLUSTERING JERÁRQUICO
-# =============================================================================
-
-def run_hierarchical_subclustering(df: pd.DataFrame, 
-                                    labels: np.ndarray,
-                                    min_cluster_size: int = 300,
-                                    sub_eps: float = 0.001,
-                                    sub_min_samples: int = 15,
-                                    verbose: bool = True) -> Tuple[np.ndarray, dict]:
-    """
-    Aplica sub-clustering dentro de clusters grandes.
-    
-    Esto es útil para zonas muy turísticas (como Vieux Lyon) donde un eps grande
-    agrupa todo en un solo cluster, pero en realidad hay múltiples puntos de interés
-    específicos (catedral, plaza, museo, etc.).
-    
-    Args:
-        df: DataFrame con los datos
-        labels: Labels del clustering principal
-        min_cluster_size: Tamaño mínimo de cluster para hacer sub-clustering
-        sub_eps: eps más pequeño para sub-clustering (~0.001 ≈ 100m)
-        sub_min_samples: min_samples para sub-clusters
-        verbose: Mostrar progreso
-    
-    Returns:
-        new_labels: Labels con sub-clusters (formato: cluster_id * 1000 + subcluster_id)
-        subclusters_info: Información detallada de los sub-clusters
-    """
-    if verbose:
-        print("\n" + "=" * 70)
-        print("🔍 SUB-CLUSTERING JERÁRQUICO")
-        print(f"   Parámetros: min_cluster_size={min_cluster_size}, sub_eps={sub_eps}, sub_min_samples={sub_min_samples}")
-        print("=" * 70)
-    
-    coords = df[['lat', 'long']].values
-    new_labels = labels.copy()
-    subclusters_info = {}
-    
-    # Identificar clusters grandes para hacer sub-clustering
-    unique_clusters = [c for c in set(labels) if c >= 0]
-    large_clusters = []
-    
-    for cluster_id in unique_clusters:
-        mask = labels == cluster_id
-        size = mask.sum()
-        if size >= min_cluster_size:
-            large_clusters.append((cluster_id, size))
-    
-    large_clusters.sort(key=lambda x: x[1], reverse=True)
-    
-    if verbose:
-        print(f"\n📊 Clusters grandes encontrados ({len(large_clusters)} de {len(unique_clusters)} totales):")
-        for cid, size in large_clusters:
-            print(f"   Cluster {cid}: {size:,} fotos")
-    
-    total_subclusters = 0
-    
-    for cluster_id, cluster_size in large_clusters:
-        mask = labels == cluster_id
-        cluster_df = df[mask].copy()
-        cluster_coords = coords[mask]
-        cluster_indices = np.where(mask)[0]
-        
-        if verbose:
-            print(f"\n{'─' * 50}")
-            print(f"🔬 Analizando Cluster {cluster_id} ({cluster_size:,} fotos)...")
-        
-        # Aplicar DBSCAN con eps más pequeño dentro del cluster
-        sub_dbscan = DBSCAN(eps=sub_eps, min_samples=sub_min_samples, metric='euclidean', n_jobs=-1)
-        sub_labels = sub_dbscan.fit_predict(cluster_coords)
-        
-        n_subclusters = len(set(sub_labels)) - (1 if -1 in sub_labels else 0)
-        n_subnoise = (sub_labels == -1).sum()
-        
-        if verbose:
-            print(f"   ✓ Sub-clusters encontrados: {n_subclusters}")
-            print(f"   ✓ Ruido interno: {n_subnoise:,} ({100*n_subnoise/len(sub_labels):.1f}%)")
-        
-        # Crear nuevas etiquetas: cluster_id * 1000 + subcluster_id
-        # Esto permite identificar tanto el cluster padre como el sub-cluster
-        subcluster_details = []
-        
-        for sub_id in sorted(set(sub_labels)):
-            sub_mask = sub_labels == sub_id
-            sub_indices = cluster_indices[sub_mask]
-            
-            if sub_id == -1:
-                # El ruido interno mantiene la etiqueta del cluster padre
-                new_labels[sub_indices] = cluster_id * 1000
-            else:
-                new_label = cluster_id * 1000 + sub_id + 1
-                new_labels[sub_indices] = new_label
-                
-                # Calcular info del sub-cluster
-                sub_df = cluster_df[sub_mask]
-                center_lat = sub_df['lat'].mean()
-                center_long = sub_df['long'].mean()
-                top_tags = get_top_tags(sub_df, n=3)
-                
-                subcluster_details.append({
-                    'sub_id': sub_id,
-                    'full_label': new_label,
-                    'size': len(sub_df),
-                    'users': sub_df['user'].nunique(),
-                    'center': (center_lat, center_long),
-                    'top_tags': top_tags
-                })
-        
-        subcluster_details.sort(key=lambda x: x['size'], reverse=True)
-        
-        subclusters_info[cluster_id] = {
-            'original_size': cluster_size,
-            'n_subclusters': n_subclusters,
-            'noise_count': n_subnoise,
-            'subclusters': subcluster_details
-        }
-        
-        total_subclusters += n_subclusters
-        
-        if verbose and n_subclusters > 0:
-            print(f"\n   📍 Sub-clusters en Cluster {cluster_id}:")
-            for sc in subcluster_details[:5]:  # Top 5
-                tags_str = ", ".join([t[0] for t in sc['top_tags']])
-                print(f"      • Sub {sc['sub_id']}: {sc['size']:,} fotos, {sc['users']} usuarios")
-                print(f"        Centro: ({sc['center'][0]:.4f}, {sc['center'][1]:.4f})")
-                print(f"        Tags: {tags_str}")
-    
-    if verbose:
-        print(f"\n{'=' * 70}")
-        print(f"✅ SUB-CLUSTERING COMPLETADO")
-        print(f"   Clusters procesados: {len(large_clusters)}")
-        print(f"   Total sub-clusters creados: {total_subclusters}")
-        print(f"   Labels únicos resultantes: {len(set(new_labels))}")
-        print("=" * 70)
-    
-    return new_labels, subclusters_info
-
-
-def analyze_subclusters(df: pd.DataFrame, 
-                        labels: np.ndarray, 
-                        subclusters_info: dict) -> dict:
-    """
-    Analiza los resultados del sub-clustering.
-    
-    Returns:
-        Diccionario con análisis completo incluyendo jerarquía
-    """
-    # Análisis general
-    unique_labels = set(labels)
-    n_total = len(unique_labels) - (1 if -1 in unique_labels else 0)
-    n_noise = (labels == -1).sum()
-    
-    # Reconstruir jerarquía
-    hierarchy = {}
-    
-    for label in sorted(unique_labels):
-        if label == -1:
-            continue
-        
-        parent_cluster = label // 1000
-        sub_id = label % 1000
-        
-        if parent_cluster not in hierarchy:
-            hierarchy[parent_cluster] = {
-                'subclusters': [],
-                'total_size': 0
-            }
-        
-        mask = labels == label
-        cluster_df = df[mask]
-        
-        sub_info = {
-            'label': label,
-            'sub_id': sub_id,
-            'size': len(cluster_df),
-            'users': cluster_df['user'].nunique(),
-            'center': (cluster_df['lat'].mean(), cluster_df['long'].mean()),
-            'top_tags': get_top_tags(cluster_df, n=5)
-        }
-        
-        hierarchy[parent_cluster]['subclusters'].append(sub_info)
-        hierarchy[parent_cluster]['total_size'] += len(cluster_df)
-    
-    # Ordenar sub-clusters por tamaño
-    for parent in hierarchy:
-        hierarchy[parent]['subclusters'].sort(key=lambda x: x['size'], reverse=True)
-    
-    return {
-        'n_total_clusters': n_total,
-        'n_noise': n_noise,
-        'noise_pct': 100 * n_noise / len(labels),
-        'hierarchy': hierarchy,
-        'subclusters_info': subclusters_info
-    }
-
-
-def print_subclusters_report(analysis: dict) -> None:
-    """Imprime un reporte detallado del sub-clustering."""
-    print("\n" + "=" * 70)
-    print("📊 REPORTE DE SUB-CLUSTERING")
-    print("=" * 70)
-    print(f"Total clusters/sub-clusters: {analysis['n_total_clusters']}")
-    print(f"Puntos de ruido: {analysis['n_noise']:,} ({analysis['noise_pct']:.1f}%)")
-    
-    print("\n📍 JERARQUÍA DE CLUSTERS:")
-    print("-" * 70)
-    
-    # Ordenar por tamaño total
-    sorted_parents = sorted(
-        analysis['hierarchy'].items(),
-        key=lambda x: x[1]['total_size'],
-        reverse=True
-    )
-    
-    for parent_id, parent_info in sorted_parents[:10]:
-        subclusters = parent_info['subclusters']
-        total = parent_info['total_size']
-        
-        print(f"\n🏛️  CLUSTER {parent_id} ({total:,} fotos, {len(subclusters)} sub-áreas)")
-        
-        for i, sc in enumerate(subclusters[:5]):
-            tags = ", ".join([t[0] for t in sc['top_tags'][:3]])
-            indent = "    ├──" if i < len(subclusters[:5]) - 1 else "    └──"
-            print(f"{indent} Sub {sc['sub_id']}: {sc['size']:,} fotos ({sc['users']} usuarios)")
-            print(f"    │      📍 ({sc['center'][0]:.4f}, {sc['center'][1]:.4f})")
-            print(f"    │      🏷️  {tags}")
-        
-        if len(subclusters) > 5:
-            print(f"    └── ... y {len(subclusters) - 5} sub-clusters más")
-    
-    print("\n" + "=" * 70)
-
-
-# =============================================================================
 # MAIN
-# =============================================================================
-
 if __name__ == "__main__":
     from data_loader import load_flickr_data
     from data_cleaning import clean_data
@@ -933,12 +666,9 @@ if __name__ == "__main__":
     
     print(f"\nDataset: {len(df_clean):,} puntos")
     
-    # Comparar los tres algoritmos
     results = compare_algorithms(df_clean, optimize=True, verbose=True)
     
-    # Imprimir comparación
     print_comparison(results)
     
-    # Imprimir detalles de cada uno
     for name, analysis in results.items():
         print_results(analysis)
